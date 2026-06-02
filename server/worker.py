@@ -15,7 +15,7 @@ from server.config import (  # noqa: E402
     WORKER_LOCK_PATH,
 )
 from server import job_store  # noqa: E402
-from server.pipeline_runner import run_job  # noqa: E402
+from server.pipeline_runner import get_pipeline, run_job  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -81,6 +81,9 @@ def main() -> None:
         REPO_ROOT,
         REDIS_QUEUE_KEY,
     )
+    logger.info("Loading TripoSplat models at startup …")
+    get_pipeline()
+    logger.info("Models ready, waiting for jobs on Redis queue")
     try:
         while True:
             job = job_store.pop_job_from_queue(timeout=WORKER_BRPOP_TIMEOUT)
