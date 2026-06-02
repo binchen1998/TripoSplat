@@ -16,6 +16,7 @@ from server.config import (  # noqa: E402
 )
 from server import job_store  # noqa: E402
 from server.pipeline_runner import get_pipeline, run_job  # noqa: E402
+from server.qiniu_cdn import qiniu_ready  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -71,6 +72,11 @@ class WorkerLock:
 
 def main() -> None:
     job_store.init_storage()
+    ok, reason = qiniu_ready()
+    if not ok:
+        logger.error("七牛未就绪，worker 无法上传 PLY: %s", reason)
+        sys.exit(1)
+
     lock = WorkerLock(WORKER_LOCK_PATH)
     if not lock.acquire():
         logger.error("Another job worker is already running (lock: %s)", WORKER_LOCK_PATH)

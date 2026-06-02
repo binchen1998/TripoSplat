@@ -20,7 +20,7 @@ from server.config import (
     RMBG_PATH,
 )
 from server import job_store
-from server.qiniu_cdn import QiniuUploadError, upload_triposplat_outputs
+from server.qiniu_cdn import QiniuUploadError, upload_triposplat_ply, upload_triposplat_splat
 
 logger = logging.getLogger(__name__)
 
@@ -99,31 +99,33 @@ def run_job(job: dict) -> None:
         _set_stage(job_id, progress=82, stage_message=f"正在解码 3D 高斯（{num_gaussians:,} 颗）")
         gaussian = pipe.decode_latent(out["latent"], num_gaussians=num_gaussians)
 
-        _set_stage(job_id, progress=88, stage_message="正在导出 PLY / SPLAT 文件")
+        _set_stage(job_id, progress=88, stage_message="正在导出 PLY 文件")
         ply_bytes = gaussian.to_ply_bytes()
-        splat_bytes = gaussian.to_splat_bytes()
-        local_ply = out_dir / "output.ply"
-        local_splat = out_dir / "output.splat"
-        local_ply.write_bytes(ply_bytes)
-        local_splat.write_bytes(splat_bytes)
+        (out_dir / "output.ply").write_bytes(ply_bytes)
 
-        _set_stage(job_id, progress=94, stage_message="正在上传到七牛 CDN")
-        ply_key, ply_url, splat_key, splat_url = upload_triposplat_outputs(
-            job_id, ply_bytes, splat_bytes
-        )
+        _set_stage(job_id, progress=94, stage_message="正在上传 PLY 到七牛 CDN")
+        ply_key, ply_url = upload_triposplat_ply(job_id, ply_bytes)
+
+        splat_key, splat_url = "", ""
+        try:
+            splat_bytes = gaussian.to_splat_bytes()
+            (out_dir / "output.splat").write_bytes(splat_bytes)
+            splat_key, splat_url = upload_triposplat_splat(job_id, splat_bytes)
+        except QiniuUploadError as exc:
+            logger.warning("Job %s splat upload skipped: %s", job_id, exc)
 
         job_store.update_job(
             job_id,
             status="completed",
             progress=100,
-            stage_message="生成完成，文件已上传七牛",
+            stage_message="生成完成，PLY 已上传七牛",
             ply_cdn_key=ply_key,
             ply_cdn_url=ply_url,
-            splat_cdn_key=splat_key,
-            splat_cdn_url=splat_url,
+            splat_cdn_key=splat_key or None,
+            splat_cdn_url=splat_url or None,
             finished_at=job_store.utc_now(),
         )
-        logger.info("Job %s completed ply=%s", job_id, ply_url)
+        logger.info("Job %s completed ply_cdn_url=%s", job_id, ply_url)
 
     except QiniuUploadError as exc:
         logger.exception("Job %s qiniu failed", job_id)

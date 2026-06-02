@@ -218,6 +218,12 @@ def job_public_view(job: dict[str, Any]) -> dict[str, Any]:
     error = job.get("error") or None
     if error == "":
         error = None
+    ply_url = job.get("ply_cdn_url") or None
+    if ply_url == "":
+        ply_url = None
+    splat_url = job.get("splat_cdn_url") or None
+    if splat_url == "":
+        splat_url = None
     return {
         "job_id": job["id"],
         "status": job["status"],
@@ -225,8 +231,11 @@ def job_public_view(job: dict[str, Any]) -> dict[str, Any]:
         "stage_message": job.get("stage_message") or "",
         "error": error,
         "num_gaussians": job.get("num_gaussians"),
-        "ply_url": job.get("ply_cdn_url") or None,
-        "splat_url": job.get("splat_cdn_url") or None,
+        # 主结果：七牛 CDN 上的 PLY（生成完成后必有，除非任务失败）
+        "result_url": ply_url,
+        "ply_url": ply_url,
+        "ply_cdn_key": job.get("ply_cdn_key") or None,
+        "splat_url": splat_url,
         "created_at": job.get("created_at"),
         "updated_at": job.get("updated_at"),
         "started_at": job.get("started_at") or None,

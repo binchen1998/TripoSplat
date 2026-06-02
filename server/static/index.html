@@ -254,19 +254,18 @@ function renderStatus(data) {
 
   links.innerHTML = '';
   if (data.status === 'completed') {
-    if (data.ply_url) {
-      links.innerHTML += `<p><a href="${data.ply_url}" target="_blank" rel="noopener">PLY（七牛 CDN）</a></p>`;
-      links.innerHTML += `<p><button type="button" id="previewCdnBtn" style="background:#334155;color:#e2e8f0;border:0;padding:6px 12px;border-radius:6px;cursor:pointer">用 CDN 地址预览</button></p>`;
-    }
-    if (data.splat_url) {
-      links.innerHTML += `<p><a href="${data.splat_url}" target="_blank" rel="noopener">SPLAT（七牛 CDN）</a></p>`;
-    }
-    if (currentJobId) {
+    const cdnPly = data.result_url || data.ply_url;
+    if (cdnPly) {
+      links.innerHTML += `<p><strong>七牛 PLY：</strong><br><a href="${cdnPly}" target="_blank" rel="noopener">${cdnPly}</a></p>`;
+      links.innerHTML += `<p><button type="button" id="copyPlyUrlBtn" style="background:#334155;color:#e2e8f0;border:0;padding:6px 12px;border-radius:6px;cursor:pointer">复制七牛地址</button></p>`;
+      const copyBtn = document.getElementById('copyPlyUrlBtn');
+      if (copyBtn) copyBtn.onclick = () => navigator.clipboard?.writeText(cdnPly);
+      showViewerWithPlyUrl(cdnPly);
+    } else if (currentJobId) {
       showViewer(currentJobId);
     }
-    const cdnBtn = document.getElementById('previewCdnBtn');
-    if (cdnBtn && data.ply_url) {
-      cdnBtn.onclick = () => showViewerWithPlyUrl(data.ply_url);
+    if (data.splat_url) {
+      links.innerHTML += `<p><a href="${data.splat_url}" target="_blank" rel="noopener">SPLAT（七牛，可选）</a></p>`;
     }
     btn.disabled = false;
     stopPoll();

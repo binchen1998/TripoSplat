@@ -61,3 +61,11 @@ curl -s http://127.0.0.1:8000/api/health
 | guidance_scale | 3.0 | 1.0–10.0 |
 
 `GET /api/options` 返回同上配置。
+
+## 七牛结果
+
+Worker 生成 PLY 后**立即**用 `put_data` 上传七牛（与 littlebits `project_cdn.py` 相同 env），轮询 `GET /api/jobs/{id}` 在 `status=completed` 时返回：
+
+- `result_url` / `ply_url`：七牛 CDN 上的 PLY 直链（客户端主用字段）
+- `ply_cdn_key`：bucket 内 object key（排查用）
+- `splat_url`：可选，SPLAT 上传失败不影响任务成功

@@ -53,3 +53,8 @@ QINIU_BUCKET = os.getenv("QINIU_BUCKET", "").strip()
 QINIU_CDN_DOMAIN = os.getenv("QINIU_CDN_DOMAIN", "").strip()
 QINIU_TRIPOSPLAT_PREFIX = os.getenv("QINIU_TRIPOSPLAT_PREFIX", "triposplat").strip().strip("/")
 QINIU_UPLOAD_TOKEN_EXPIRES = int(os.getenv("QINIU_UPLOAD_TOKEN_EXPIRES", "3600"))
+QINIU_REFRESH_AFTER_UPLOAD = os.getenv("QINIU_REFRESH_AFTER_UPLOAD", "1").strip().lower() not in {
+    "0",
+    "false",
+    "no",
+}

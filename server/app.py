@@ -179,14 +179,19 @@ async def job_output_ply(job_id: str, request: Request):
 
 @app.get("/api/health")
 async def health():
+    from server.qiniu_cdn import qiniu_ready  # noqa: E402
+
     try:
         await job_store.ping_async()
         qlen = job_store.queue_length()
     except Exception as exc:
         raise HTTPException(503, f"Redis unavailable: {exc}") from exc
+    qiniu_ok, qiniu_reason = qiniu_ready()
     return {
         "ok": True,
         "repo": str(REPO_ROOT),
         "redis_queue": REDIS_QUEUE_KEY,
         "queue_length": qlen,
+        "qiniu_ready": qiniu_ok,
+        "qiniu_message": qiniu_reason,
     }

@@ -1,4 +1,4 @@
-"""七牛上传（与 littlebits backend/project_cdn.py 同一套 env 与 put_data 流程）。"""
+"""七牛上传（与 littlebits backend/project_cdn.py 同一套 env、put_data、CDN 刷新）。"""
 
 import logging
 import os
@@ -6,15 +6,17 @@ import uuid
 from datetime import datetime
 
 try:
-    from qiniu import Auth, put_data
+    from qiniu import Auth, CdnManager, put_data
 except ImportError:
     Auth = None
+    CdnManager = None
     put_data = None
 
 from server.config import (
     QINIU_ACCESS_KEY,
     QINIU_BUCKET,
     QINIU_CDN_DOMAIN,
+    QINIU_REFRESH_AFTER_UPLOAD,
     QINIU_SECRET_KEY,
     QINIU_TRIPOSPLAT_PREFIX,
     QINIU_UPLOAD_TOKEN_EXPIRES,
@@ -53,16 +55,37 @@ def build_unique_object_key(base_key: str) -> str:
 
 def build_triposplat_ply_key(job_id: str) -> str:
     prefix = QINIU_TRIPOSPLAT_PREFIX or "triposplat"
-    return f"{prefix}/{job_id}/splat.ply"
+    return f"{prefix}/{job_id}/output.ply"
 
 
 def build_triposplat_splat_key(job_id: str) -> str:
     prefix = QINIU_TRIPOSPLAT_PREFIX or "triposplat"
-    return f"{prefix}/{job_id}/splat.splat"
+    return f"{prefix}/{job_id}/output.splat"
 
 
 def public_url_for_key(key: str) -> str:
     return f"{_normalized_domain()}/{key.lstrip('/')}"
+
+
+def refresh_cdn_cache(url: str) -> None:
+    """与 littlebits project_cdn.invalidate_project_data_cache 相同逻辑。"""
+    if not url or not QINIU_REFRESH_AFTER_UPLOAD:
+        return
+    ok, reason = qiniu_ready()
+    if not ok:
+        logger.warning("skip cdn refresh: %s", reason)
+        return
+    if CdnManager is None:
+        logger.warning("skip cdn refresh: CdnManager unavailable")
+        return
+    auth = Auth(QINIU_ACCESS_KEY, QINIU_SECRET_KEY)
+    cdn_manager = CdnManager(auth)
+    result = cdn_manager.refresh_urls([url])
+    if isinstance(result, tuple) and len(result) == 2:
+        _, info = result
+        status_code = getattr(info, "status_code", None)
+        if status_code is not None and status_code >= 300:
+            logger.warning("cdn refresh failed status=%s url=%s", status_code, url)
 
 
 def upload_bytes(
@@ -94,20 +117,27 @@ def upload_bytes(
     return url
 
 
-def upload_triposplat_outputs(job_id: str, ply_bytes: bytes, splat_bytes: bytes) -> tuple[str, str, str, str]:
-    """返回 (ply_key, ply_url, splat_key, splat_url)。"""
+def upload_triposplat_ply(job_id: str, ply_bytes: bytes) -> tuple[str, str]:
+    """上传 PLY 到七牛，返回 (object_key, cdn_url)。"""
     ply_key = build_unique_object_key(build_triposplat_ply_key(job_id))
-    splat_key = build_unique_object_key(build_triposplat_splat_key(job_id))
     ply_url = upload_bytes(
         key=ply_key,
         data=ply_bytes,
         error_label="上传 TripoSplat PLY 失败",
         mime_type="application/octet-stream",
     )
+    refresh_cdn_cache(ply_url)
+    return ply_key, ply_url
+
+
+def upload_triposplat_splat(job_id: str, splat_bytes: bytes) -> tuple[str, str]:
+    """可选：上传 .splat。"""
+    splat_key = build_unique_object_key(build_triposplat_splat_key(job_id))
     splat_url = upload_bytes(
         key=splat_key,
         data=splat_bytes,
         error_label="上传 TripoSplat SPLAT 失败",
         mime_type="application/octet-stream",
     )
-    return ply_key, ply_url, splat_key, splat_url
+    refresh_cdn_cache(splat_url)
+    return splat_key, splat_url
