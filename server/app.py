@@ -4,7 +4,7 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -23,6 +23,15 @@ from server.config import (  # noqa: E402
     REDIS_QUEUE_KEY,
 )
 from server.job_store import JobStoreError  # noqa: E402
+from server.params import (  # noqa: E402
+    GAUSSIAN_COUNT_CHOICES,
+    GUIDANCE_MAX,
+    GUIDANCE_MIN,
+    InvalidJobParamsError,
+    STEPS_MAX,
+    STEPS_MIN,
+    parse_job_params,
+)
 from server.pipeline_runner import default_job_params  # noqa: E402
 
 logging.basicConfig(level=logging.INFO)
@@ -66,12 +75,38 @@ async def index_page():
     return FileResponse(index)
 
 
+@app.get("/api/options")
+async def job_options():
+    """与 Gradio Sampling settings 一致的可选参数。"""
+    d = default_job_params()
+    return {
+        "num_gaussians_choices": list(GAUSSIAN_COUNT_CHOICES),
+        "defaults": d,
+        "steps": {"min": STEPS_MIN, "max": STEPS_MAX},
+        "guidance_scale": {"min": GUIDANCE_MIN, "max": GUIDANCE_MAX, "step": 0.5},
+    }
+
+
 @app.post("/api/jobs")
-async def submit_job(image: UploadFile = File(...)):
+async def submit_job(
+    image: UploadFile = File(...),
+    num_gaussians: int = Form(default=NUM_GAUSSIANS),
+    seed: int = Form(default=DEFAULT_SEED),
+    steps: int = Form(default=DEFAULT_STEPS),
+    guidance_scale: float = Form(default=DEFAULT_GUIDANCE_SCALE),
+):
     if not image.content_type or not image.content_type.startswith("image/"):
         raise HTTPException(400, "请上传图片文件")
 
-    params = default_job_params()
+    try:
+        params = parse_job_params(
+            num_gaussians=num_gaussians,
+            seed=seed,
+            steps=steps,
+            guidance_scale=guidance_scale,
+        )
+    except InvalidJobParamsError as exc:
+        raise HTTPException(400, str(exc)) from exc
     job_id = uuid.uuid4().hex
     job_dir = job_store.job_input_dir(job_id)
     ext = Path(image.filename or "upload.png").suffix.lower() or ".png"
@@ -105,12 +140,7 @@ async def submit_job(image: UploadFile = File(...)):
         "status": "pending",
         "stage_message": job["stage_message"],
         "poll_url": f"/api/jobs/{job['id']}",
-        "defaults": {
-            "seed": DEFAULT_SEED,
-            "steps": DEFAULT_STEPS,
-            "guidance_scale": DEFAULT_GUIDANCE_SCALE,
-            "num_gaussians": NUM_GAUSSIANS,
-        },
+        "params": params,
     }
 
 

@@ -26,6 +26,20 @@
     p.sub { color: #94a3b8; font-size: 0.9rem; margin: 0 0 20px; line-height: 1.5; }
     label { display: block; font-size: 0.85rem; color: #94a3b8; margin-bottom: 8px; }
     input[type=file] { width: 100%; margin-bottom: 16px; }
+    select, input[type=number] {
+      width: 100%; padding: 8px 10px; margin-bottom: 12px;
+      border-radius: 6px; border: 1px solid #334155;
+      background: #0f1117; color: #e2e8f0; font-size: 0.85rem;
+    }
+    details.sampling {
+      margin-bottom: 16px; padding: 12px 14px;
+      border-radius: 8px; background: #1a2030; border: 1px solid #2d3748;
+    }
+    details.sampling summary {
+      cursor: pointer; color: #94a3b8; font-size: 0.85rem; user-select: none;
+    }
+    details.sampling[open] summary { margin-bottom: 12px; }
+    .field { margin-bottom: 4px; }
     button {
       width: 100%; padding: 12px; border: 0; border-radius: 8px;
       background: #3b82f6; color: #fff; font-size: 1rem; cursor: pointer;
@@ -101,11 +115,37 @@
 <div class="layout">
   <div class="side">
     <h1>TripoSplat</h1>
-    <p class="sub">上传图片生成 3D Gaussian（32,768 颗）。完成后右侧可旋转预览。</p>
+    <p class="sub">上传图片生成 3D Gaussian。完成后右侧可旋转预览。</p>
 
     <form id="form">
       <label for="image">输入图片</label>
       <input id="image" name="image" type="file" accept="image/*" required>
+
+      <details class="sampling">
+        <summary>采样参数（与 Gradio 一致）</summary>
+        <div class="field">
+          <label for="numGaussians">高斯数量</label>
+          <select id="numGaussians" name="num_gaussians">
+            <option value="32768" selected>32,768</option>
+            <option value="65536">65,536</option>
+            <option value="131072">131,072</option>
+            <option value="262144">262,144</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="seed">Seed</label>
+          <input id="seed" name="seed" type="number" value="42" step="1">
+        </div>
+        <div class="field">
+          <label for="steps">Inference steps (1–50)</label>
+          <input id="steps" name="steps" type="number" value="20" min="1" max="50" step="1">
+        </div>
+        <div class="field">
+          <label for="guidanceScale">Guidance scale (1–10)</label>
+          <input id="guidanceScale" name="guidance_scale" type="number" value="3" min="1" max="10" step="0.5">
+        </div>
+      </details>
+
       <button type="submit" id="btn">开始生成</button>
     </form>
 
@@ -255,6 +295,10 @@ form.addEventListener('submit', async (e) => {
 
   const body = new FormData();
   body.append('image', file);
+  body.append('num_gaussians', document.getElementById('numGaussians').value);
+  body.append('seed', document.getElementById('seed').value);
+  body.append('steps', document.getElementById('steps').value);
+  body.append('guidance_scale', document.getElementById('guidanceScale').value);
 
   try {
     const res = await fetch('/api/jobs', { method: 'POST', body });

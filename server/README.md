@@ -51,4 +51,13 @@ curl -s http://127.0.0.1:8000/api/health
 
 ## 默认参数
 
-与 Gradio 一致：`num_gaussians=32768`，`seed=42`，`steps=20`，`guidance_scale=3.0`。
+与 Gradio 一致，可在页面「采样参数」中修改：
+
+| 参数 | 默认 | 可选范围 |
+|------|------|----------|
+| num_gaussians | 32768 | 32768 / 65536 / 131072 / 262144 |
+| seed | 42 | 任意整数 |
+| steps | 20 | 1–50 |
+| guidance_scale | 3.0 | 1.0–10.0 |
+
+`GET /api/options` 返回同上配置。
