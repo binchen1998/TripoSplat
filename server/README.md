@@ -36,7 +36,12 @@ export PYTHONPATH="$(pwd)"
 uvicorn server.app:app --host 0.0.0.0 --port 8000 --workers 5
 ```
 
-浏览器访问 `http://<主机>:8000/` 上传图片。生成完成后页面右侧用 **Spark.js + Three.js** 预览 PLY（与 Gradio 相同 viewer，挂载自 `static/viewer/`）。
+浏览器访问 `http://<主机>:8000/` 上传图片。生成完成后页面右侧用 **Spark.js + Three.js** 预览 PLY。
+
+**直接加载 PLY**（无需生成）：
+
+- 首页左侧「直接预览 PLY」：本地文件或任意 URL
+- 全屏查看器：`http://<主机>:8000/viewer/viewer.html`（支持 `?ply=`、工具栏选文件、拖入 `.ply`）
 
 ## 健康检查
 

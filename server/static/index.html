@@ -79,6 +79,22 @@
       text-align: center;
       padding: 24px;
     }
+    .divider {
+      margin: 22px 0 14px;
+      border: 0;
+      border-top: 1px solid #2d3748;
+    }
+    h2 { font-size: 0.95rem; font-weight: 600; margin: 0 0 10px; color: #cbd5e1; }
+    input[type=url], input[type=text].ply-url {
+      width: 100%; padding: 8px 10px; margin-bottom: 10px;
+      border-radius: 6px; border: 1px solid #334155;
+      background: #0f1117; color: #e2e8f0; font-size: 0.85rem;
+    }
+    .btn-secondary {
+      background: #334155;
+      margin-top: 4px;
+    }
+    .hint { font-size: 0.75rem; color: #64748b; margin-top: 6px; line-height: 1.4; }
   </style>
 </head>
 <body>
@@ -99,6 +115,16 @@
       <div class="meta" id="meta"></div>
       <div class="links" id="links"></div>
     </div>
+
+    <hr class="divider">
+    <h2>直接预览 PLY</h2>
+    <p class="hint">无需生成，可加载本地文件或七牛 / 任意可访问的 PLY URL。</p>
+    <label for="plyFile">本地 .ply</label>
+    <input id="plyFile" type="file" accept=".ply,application/octet-stream">
+    <label for="plyUrl">PLY URL</label>
+    <input id="plyUrl" class="ply-url" type="url" placeholder="https://…/model.ply">
+    <button type="button" id="plyPreviewBtn" class="btn-secondary">打开预览</button>
+    <p class="hint"><a href="/viewer/viewer.html" target="_blank" rel="noopener" style="color:#93c5fd">全屏 viewer</a> 支持拖入文件</p>
   </div>
 
   <div class="viewer-col">
@@ -134,12 +160,45 @@ function hideViewer() {
   viewerPlaceholder.hidden = false;
 }
 
-function showViewer(jobId) {
-  const plySameOrigin = `/api/jobs/${jobId}/output.ply?ts=${Date.now()}`;
-  viewerFrame.src = `/viewer/viewer.html?ply=${encodeURIComponent(plySameOrigin)}`;
+let plyObjectUrl = null;
+
+function revokePlyObjectUrl() {
+  if (plyObjectUrl) {
+    URL.revokeObjectURL(plyObjectUrl);
+    plyObjectUrl = null;
+  }
+}
+
+function showViewerWithPlyUrl(plyUrl) {
+  if (!plyUrl) return;
+  viewerFrame.src = `/viewer/viewer.html?ply=${encodeURIComponent(plyUrl)}&ts=${Date.now()}`;
   viewerFrame.hidden = false;
   viewerPlaceholder.hidden = true;
 }
+
+function showViewer(jobId) {
+  showViewerWithPlyUrl(`/api/jobs/${jobId}/output.ply`);
+}
+
+document.getElementById('plyPreviewBtn').addEventListener('click', () => {
+  const file = document.getElementById('plyFile').files[0];
+  const url = document.getElementById('plyUrl').value.trim();
+  revokePlyObjectUrl();
+  if (file) {
+    if (!file.name.toLowerCase().endsWith('.ply')) {
+      alert('请选择 .ply 文件');
+      return;
+    }
+    plyObjectUrl = URL.createObjectURL(file);
+    showViewerWithPlyUrl(plyObjectUrl);
+    return;
+  }
+  if (url) {
+    showViewerWithPlyUrl(url);
+    return;
+  }
+  alert('请选择本地 PLY 或填写 URL');
+});
 
 async function pollJob(jobId) {
   const res = await fetch(`/api/jobs/${jobId}`);
@@ -157,12 +216,17 @@ function renderStatus(data) {
   if (data.status === 'completed') {
     if (data.ply_url) {
       links.innerHTML += `<p><a href="${data.ply_url}" target="_blank" rel="noopener">PLY（七牛 CDN）</a></p>`;
+      links.innerHTML += `<p><button type="button" id="previewCdnBtn" style="background:#334155;color:#e2e8f0;border:0;padding:6px 12px;border-radius:6px;cursor:pointer">用 CDN 地址预览</button></p>`;
     }
     if (data.splat_url) {
       links.innerHTML += `<p><a href="${data.splat_url}" target="_blank" rel="noopener">SPLAT（七牛 CDN）</a></p>`;
     }
     if (currentJobId) {
       showViewer(currentJobId);
+    }
+    const cdnBtn = document.getElementById('previewCdnBtn');
+    if (cdnBtn && data.ply_url) {
+      cdnBtn.onclick = () => showViewerWithPlyUrl(data.ply_url);
     }
     btn.disabled = false;
     stopPoll();

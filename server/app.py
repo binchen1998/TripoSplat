@@ -4,9 +4,9 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -122,8 +122,8 @@ async def poll_job(job_id: str):
     return job_store.job_public_view(job)
 
 
-@app.get("/api/jobs/{job_id}/output.ply")
-async def job_output_ply(job_id: str):
+@app.api_route("/api/jobs/{job_id}/output.ply", methods=["GET", "HEAD"])
+async def job_output_ply(job_id: str, request: Request):
     """同源 PLY，供页面内 Spark viewer 加载（避免七牛跨域）。"""
     job = await job_store.get_job_async(job_id)
     if job is None:
@@ -131,6 +131,15 @@ async def job_output_ply(job_id: str):
     ply_path = job_store.job_input_dir(job_id) / "output.ply"
     if not ply_path.is_file():
         raise HTTPException(404, "PLY 尚未生成")
+    if request.method == "HEAD":
+        size = ply_path.stat().st_size
+        return Response(
+            headers={
+                "Content-Type": "application/octet-stream",
+                "Content-Length": str(size),
+                "Accept-Ranges": "bytes",
+            }
+        )
     return FileResponse(
         ply_path,
         media_type="application/octet-stream",

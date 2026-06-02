@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -9,17 +9,38 @@
   html, body { width: 100%; height: 100%; overflow: hidden;
     background: radial-gradient(ellipse at 50% 60%, #1a2035 0%, #080b12 100%); }
   canvas { display: block; }
+  #toolbar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 20;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    padding: 10px 14px;
+    background: rgba(15, 17, 23, 0.92);
+    border-bottom: 1px solid #2d3748;
+    font: 13px system-ui, sans-serif;
+    color: #e2e8f0;
+  }
+  #toolbar label { color: #94a3b8; font-size: 12px; }
+  #toolbar input[type=file] { max-width: 200px; font-size: 12px; }
+  #toolbar input[type=url] {
+    flex: 1; min-width: 160px; max-width: 480px;
+    padding: 6px 10px; border-radius: 6px; border: 1px solid #334155;
+    background: #1a2030; color: #e2e8f0;
+  }
+  #toolbar button {
+    padding: 6px 14px; border: 0; border-radius: 6px;
+    background: #3b82f6; color: #fff; cursor: pointer; font-size: 12px;
+  }
+  #toolbar button:disabled { opacity: 0.5; cursor: not-allowed; }
   #hud {
-    position: fixed; top: 12px; left: 16px;
+    position: fixed; top: 52px; left: 16px; z-index: 10;
     color: #94a3b8; font: 12px/1.5 system-ui, sans-serif;
     pointer-events: none; user-select: none;
   }
   #loading {
-    position: fixed; inset: 0;
+    position: fixed; inset: 0; z-index: 5;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
     color: #94a3b8; font: 14px system-ui, sans-serif;
-    gap: 12px;
+    gap: 12px; pointer-events: none;
   }
   #spinner {
     width: 36px; height: 36px;
@@ -30,21 +51,38 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   #error {
-    display: none;
+    display: none; z-index: 15;
     position: fixed; inset: 0;
     align-items: center; justify-content: center;
     color: #f87171; font: 13px system-ui, sans-serif;
     padding: 32px; text-align: center; white-space: pre-wrap;
+    background: rgba(8, 11, 18, 0.85);
+  }
+  body.drag-over::after {
+    content: "松开以加载 PLY";
+    position: fixed; inset: 0; z-index: 30;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(59, 130, 246, 0.15);
+    border: 2px dashed #60a5fa;
+    color: #93c5fd; font: 16px system-ui, sans-serif;
+    pointer-events: none;
   }
 </style>
 </head>
 <body>
+<div id="toolbar">
+  <label>PLY 文件</label>
+  <input id="fileInput" type="file" accept=".ply,application/octet-stream">
+  <label>或 URL</label>
+  <input id="urlInput" type="url" placeholder="https://…/model.ply">
+  <button type="button" id="loadBtn">加载</button>
+</div>
 <div id="loading">
   <div id="spinner"></div>
-  <div id="loading-label">Loading splat…</div>
+  <div id="loading-label">选择或加载 PLY…</div>
 </div>
 <div id="error"></div>
-<div id="hud">drag to orbit &nbsp;·&nbsp; scroll to zoom &nbsp;·&nbsp; right-drag to pan</div>
+<div id="hud">拖拽旋转 · 滚轮缩放 · 右键平移 · 可拖入 .ply 文件</div>
 
 <script type="importmap">
 {
@@ -62,11 +100,16 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
 
 const params = new URLSearchParams(location.search);
-const plyURL = params.get("ply");
-
+const fileInput = document.getElementById("fileInput");
+const urlInput = document.getElementById("urlInput");
+const loadBtn = document.getElementById("loadBtn");
 const loadingEl = document.getElementById("loading");
 const loadLabel = document.getElementById("loading-label");
-const errorEl   = document.getElementById("error");
+const errorEl = document.getElementById("error");
+
+let activeObjectUrl = null;
+let sceneCtx = null;
+let animFrame = null;
 
 function showError(msg) {
   loadingEl.style.display = "none";
@@ -74,15 +117,50 @@ function showError(msg) {
   errorEl.textContent = msg;
 }
 
-if (!plyURL) {
-  showError("No ?ply= parameter provided.");
-} else {
-  init(plyURL);
+function hideError() {
+  errorEl.style.display = "none";
+  errorEl.textContent = "";
+}
+
+function revokeObjectUrl() {
+  if (activeObjectUrl) {
+    URL.revokeObjectURL(activeObjectUrl);
+    activeObjectUrl = null;
+  }
+}
+
+function resolvePlyUrl(raw) {
+  const s = (raw || "").trim();
+  if (!s) return null;
+  if (s.startsWith("blob:") || s.startsWith("http://") || s.startsWith("https://")
+      || s.startsWith("/")) {
+    return s;
+  }
+  return s;
+}
+
+function disposeScene() {
+  if (animFrame) {
+    cancelAnimationFrame(animFrame);
+    animFrame = null;
+  }
+  if (!sceneCtx) return;
+  const { renderer, controls, splatRoot, splat } = sceneCtx;
+  controls?.dispose();
+  splatRoot?.remove(splat);
+  splat?.dispose?.();
+  renderer?.dispose();
+  renderer?.domElement?.remove();
+  sceneCtx = null;
 }
 
 function init(url) {
-  const scene = new THREE.Scene();
+  hideError();
+  loadingEl.style.display = "flex";
+  loadLabel.textContent = "Loading splat…";
+  disposeScene();
 
+  const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.01, 1000);
   camera.position.set(0, 0.3, 1.8);
 
@@ -102,15 +180,13 @@ function init(url) {
   controls.target.set(0, 0, 0);
 
   const splat = new SplatMesh({ url });
-  // DEG saves PLYs with -Y up and the front of the object facing roughly
-  // along the horizontal axis.  Re-orient for Three.js (+Y up, camera on
-  // +Z looking toward -Z): a Group lets us apply a yaw first (to bring the
-  // front-facing side to +Z) and then flip 180° around X to put up on +Y.
   const splatRoot = new THREE.Group();
   splatRoot.add(splat);
-  splat.rotation.y = Math.PI / 2;    // yaw the model so its front faces the camera
-  splatRoot.rotation.x = Math.PI;    // flip Y/Z so it stands upright
+  splat.rotation.y = Math.PI / 2;
+  splatRoot.rotation.x = Math.PI;
   scene.add(splatRoot);
+
+  sceneCtx = { scene, camera, renderer, controls, spark, splat, splatRoot };
 
   let framed = false;
   function tryFrame() {
@@ -118,49 +194,99 @@ function init(url) {
     const box = new THREE.Box3().setFromObject(splatRoot);
     if (box.isEmpty() || !isFinite(box.min.x)) return;
     framed = true;
-    // const center = new THREE.Vector3();
-    // const size   = new THREE.Vector3();
-    // box.getCenter(center);
-    // box.getSize(size);
-    // console.log(size);
-    // const maxDim = Math.max(size.x, size.y, size.z);
-    // // With a 45° FOV, half-fov tan ≈ 0.414, so the minimum distance to fit
-    // // a sphere of diameter `maxDim` in view is maxDim / (2*0.414) ≈ 1.21*maxDim.
-    // // Use a small margin (1.15) so the object nearly fills the viewport.
-    // const dist = maxDim * 1.15;
-    // camera.position.copy(center).add(new THREE.Vector3(0, maxDim * 0.15, dist));
-    // controls.target.copy(center);
-    // controls.update();
     loadingEl.style.display = "none";
   }
 
   fetch(url, { method: "HEAD" }).then(r => {
-    if (!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText}`);
+    if (!r.ok) return;
     const len = r.headers.get("content-length");
     if (len) loadLabel.textContent = `Loading splat (${(len / 1024 / 1024).toFixed(1)} MB)…`;
-  }).catch(e => showError("Fetch failed: " + e.message));
+  }).catch(() => {});
 
   let checkFrames = 0;
-  function checkLoaded() {
-    checkFrames++;
-    if (checkFrames < 5) return;
-    tryFrame();
-  }
-
-  window.addEventListener("resize", () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-  });
-
-  renderer.setAnimationLoop(() => {
+  function onFrame() {
     controls.update();
     renderer.render(scene, camera);
-    checkLoaded();
-  });
+    checkFrames++;
+    if (checkFrames >= 5) tryFrame();
+  }
 
-  // Fallback: hide loading after 4s regardless of bbox-readiness.
+  function loop() {
+    onFrame();
+    animFrame = requestAnimationFrame(loop);
+  }
+  loop();
+
   setTimeout(() => { loadingEl.style.display = "none"; }, 4000);
+}
+
+function loadFromUrl(rawUrl) {
+  const url = resolvePlyUrl(rawUrl);
+  if (!url) {
+    showError("请填写 PLY 的 URL 或选择本地文件");
+    return;
+  }
+  urlInput.value = rawUrl.startsWith("blob:") ? "" : url;
+  init(url);
+}
+
+function loadFromFile(file) {
+  if (!file) return;
+  const name = (file.name || "").toLowerCase();
+  if (!name.endsWith(".ply")) {
+    showError("请选择 .ply 文件");
+    return;
+  }
+  revokeObjectUrl();
+  activeObjectUrl = URL.createObjectURL(file);
+  fileInput.value = "";
+  loadFromUrl(activeObjectUrl);
+}
+
+loadBtn.addEventListener("click", () => {
+  const f = fileInput.files?.[0];
+  if (f) {
+    loadFromFile(f);
+    return;
+  }
+  loadFromUrl(urlInput.value);
+});
+
+fileInput.addEventListener("change", () => {
+  const f = fileInput.files?.[0];
+  if (f) loadFromFile(f);
+});
+
+document.body.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  document.body.classList.add("drag-over");
+});
+document.body.addEventListener("dragleave", () => {
+  document.body.classList.remove("drag-over");
+});
+document.body.addEventListener("drop", (e) => {
+  e.preventDefault();
+  document.body.classList.remove("drag-over");
+  const f = [...(e.dataTransfer?.files || [])].find(x =>
+    (x.name || "").toLowerCase().endsWith(".ply"));
+  if (f) loadFromFile(f);
+});
+
+window.addEventListener("resize", () => {
+  if (!sceneCtx) return;
+  const { camera, renderer } = sceneCtx;
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+const initial = params.get("ply") || params.get("url");
+if (initial) {
+  urlInput.value = initial.startsWith("blob:") ? "" : initial;
+  loadFromUrl(initial);
+} else {
+  loadingEl.style.display = "flex";
+  loadLabel.textContent = "选择 PLY 文件、输入 URL，或拖入 .ply";
 }
 </script>
 </body>
