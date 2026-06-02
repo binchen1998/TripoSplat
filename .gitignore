@@ -203,6 +203,10 @@ cython_debug/
 # Temporary file for partial code execution
 tempCodeRunnerFile.py
 
+# TripoSplat API server runtime
+server_data/
+*.db-journal
+
 # Ruff stuff:
 .ruff_cache/
 

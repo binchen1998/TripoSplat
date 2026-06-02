@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TripoSplat 图片转 3D Gaussian</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    body { margin: 0; min-height: 100vh; background: #0f1117; color: #e2e8f0; }
+    main { max-width: 520px; margin: 0 auto; padding: 32px 20px 48px; }
+    h1 { font-size: 1.35rem; font-weight: 600; margin: 0 0 8px; }
+    p.sub { color: #94a3b8; font-size: 0.9rem; margin: 0 0 24px; line-height: 1.5; }
+    label { display: block; font-size: 0.85rem; color: #94a3b8; margin-bottom: 8px; }
+    input[type=file] { width: 100%; margin-bottom: 16px; }
+    button {
+      width: 100%; padding: 12px; border: 0; border-radius: 8px;
+      background: #3b82f6; color: #fff; font-size: 1rem; cursor: pointer;
+    }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .panel {
+      margin-top: 24px; padding: 16px; border-radius: 10px;
+      background: #1a2030; border: 1px solid #2d3748;
+    }
+    .stage { font-size: 0.95rem; min-height: 1.4em; margin-bottom: 12px; }
+    .bar-wrap { height: 8px; background: #334155; border-radius: 4px; overflow: hidden; }
+    .bar { height: 100%; width: 0%; background: #60a5fa; transition: width 0.25s; }
+    .meta { font-size: 0.8rem; color: #64748b; margin-top: 10px; }
+    .links a { color: #93c5fd; word-break: break-all; }
+    .err { color: #f87171; }
+    .preview { margin-top: 12px; max-width: 100%; border-radius: 8px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>TripoSplat</h1>
+  <p class="sub">上传一张图片，生成 3D Gaussian（32,768 颗）。提交后自动轮询进度，完成后返回七牛 CDN 地址。</p>
+
+  <form id="form">
+    <label for="image">输入图片</label>
+    <input id="image" name="image" type="file" accept="image/*" required>
+    <button type="submit" id="btn">开始生成</button>
+  </form>
+
+  <div class="panel" id="statusPanel" hidden>
+    <div class="stage" id="stage">—</div>
+    <div class="bar-wrap"><div class="bar" id="bar"></div></div>
+    <div class="meta" id="meta"></div>
+    <div class="links" id="links"></div>
+  </div>
+</main>
+<script>
+const form = document.getElementById('form');
+const btn = document.getElementById('btn');
+const panel = document.getElementById('statusPanel');
+const stageEl = document.getElementById('stage');
+const bar = document.getElementById('bar');
+const meta = document.getElementById('meta');
+const links = document.getElementById('links');
+
+let pollTimer = null;
+
+function stopPoll() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+async function pollJob(jobId) {
+  const res = await fetch(`/api/jobs/${jobId}`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+function renderStatus(data) {
+  panel.hidden = false;
+  stageEl.textContent = data.stage_message || data.status;
+  bar.style.width = `${Math.max(0, Math.min(100, data.progress || 0))}%`;
+  meta.textContent = `状态: ${data.status} · 进度: ${(data.progress || 0).toFixed(1)}% · 高斯数: ${data.num_gaussians || '—'}`;
+
+  links.innerHTML = '';
+  if (data.status === 'completed') {
+    if (data.ply_url) {
+      links.innerHTML += `<p><a href="${data.ply_url}" target="_blank" rel="noopener">PLY（七牛）</a></p>`;
+    }
+    if (data.splat_url) {
+      links.innerHTML += `<p><a href="${data.splat_url}" target="_blank" rel="noopener">SPLAT（七牛）</a></p>`;
+    }
+    btn.disabled = false;
+    stopPoll();
+  } else if (data.status === 'failed') {
+    stageEl.innerHTML = `<span class="err">${data.stage_message || '失败'}</span>`;
+    if (data.error) meta.textContent += ` · ${data.error}`;
+    btn.disabled = false;
+    stopPoll();
+  }
+}
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const file = document.getElementById('image').files[0];
+  if (!file) return;
+
+  btn.disabled = true;
+  stopPoll();
+  links.innerHTML = '';
+  stageEl.textContent = '正在提交任务…';
+  bar.style.width = '0%';
+  panel.hidden = false;
+
+  const body = new FormData();
+  body.append('image', file);
+
+  try {
+    const res = await fetch('/api/jobs', { method: 'POST', body });
+    if (!res.ok) throw new Error(await res.text());
+    const { job_id } = await res.json();
+
+    const tick = async () => {
+      try {
+        const data = await pollJob(job_id);
+        renderStatus(data);
+      } catch (err) {
+        stageEl.innerHTML = `<span class="err">轮询失败: ${err.message}</span>`;
+        btn.disabled = false;
+        stopPoll();
+      }
+    };
+    await tick();
+    pollTimer = setInterval(tick, 1500);
+  } catch (err) {
+    stageEl.innerHTML = `<span class="err">提交失败: ${err.message}</span>`;
+    btn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>
